@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Interactive 3D Solar System</title>
+<style>
+  body { margin: 0; overflow: hidden; background: black; font-family: Arial; }
+  #ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    background: rgba(0,0,0,0.6);
+    padding: 10px;
+    border-radius: 8px;
+  }
+  #info {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    color: white;
+    background: rgba(0,0,0,0.7);
+    padding: 12px;
+    border-radius: 8px;
+    max-width: 260px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  ⏱ Time Speed<br>
+  <input type="range" id="speedSlider" min="0" max="5" step="0.1" value="1">
+</div>
+
+<div id="info"></div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js";
+import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/controls/OrbitControls.js";
+
+/* ================= SCENE ================= */
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 50000);
+camera.position.set(0, 1500, 2500);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+/* ================= CONTROLS ================= */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+/* ================= LIGHT ================= */
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const sunLight = new THREE.PointLight(0xffffff, 2.5);
+scene.add(sunLight);
+
+/* ================= TEXTURE LOADER ================= */
+const loader = new THREE.TextureLoader();
+
+/* ================= SUN ================= */
+const sun = new THREE.Mesh(
+  new THREE.SphereGeometry(120, 32, 32),
+  new THREE.MeshBasicMaterial({ map: loader.load("https://threejs.org/examples/textures/planets/sun.jpg") })
+);
+scene.add(sun);
+
+/* ================= PLANET DATA ================= */
+const planetData = [
+  { name:"Mercury", d:58, r:2440, s:47.4, t:"167°C", tex:"mercury.jpg" },
+  { name:"Venus", d:108, r:6052, s:35.0, t:"464°C", tex:"venus.jpg" },
+  { name:"Earth", d:150, r:6371, s:29.8, t:"15°C", tex:"earth_atmos_2048.jpg" },
+  { name:"Mars", d:228, r:3390, s:24.1, t:"−65°C", tex:"mars_1k_color.jpg" },
+  { name:"Jupiter", d:778, r:69911, s:13.1, t:"−110°C", tex:"jupiter.jpg" },
+  { name:"Saturn", d:1430, r:58232, s:9.7, t:"−140°C", tex:"saturn.jpg" },
+  { name:"Uranus", d:2870, r:25362, s:6.8, t:"−195°C", tex:"uranus.jpg" },
+  { name:"Neptune", d:4500, r:24622, s:5.4, t:"−200°C", tex:"neptune.jpg" }
+];
+
+const textureBase = "https://threejs.org/examples/textures/planets/";
+
+const distanceScale = 0.3;
+const sizeScale = 0.004;
+const baseSpeedScale = 0.0005;
+
+const planets = [];
+
+/* ================= CREATE PLANETS ================= */
+planetData.forEach(p => {
+
+  // Orbit ring
+  const curve = new THREE.EllipseCurve(0,0,p.d*distanceScale,p.d*distanceScale,0,Math.PI*2);
+  const points = curve.getPoints(200).map(pt => new THREE.Vector3(pt.x,0,pt.y));
+  const orbit = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color: 0x333333 })
+  );
+  scene.add(orbit);
+
+  // Planet mesh
+  const planet = new THREE.Mesh(
+    new THREE.SphereGeometry(p.r * sizeScale, 32, 32),
+    new THREE.MeshStandardMaterial({
+      map: loader.load(textureBase + p.tex)
+    })
+  );
+
+  planet.userData = {
+    ...p,
+    angle: Math.random() * Math.PI * 2,
+    distance: p.d * distanceScale
+  };
+
+  scene.add(planet);
+  planets.push(planet);
+});
+
+/* ================= INTERACTION ================= */
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const infoBox = document.getElementById("info");
+
+window.addEventListener("click", e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(planets);
+
+  if (hits.length) {
+    const p = hits[0].object.userData;
+    infoBox.style.display = "block";
+    infoBox.innerHTML = `
+      <b>${p.name}</b><br>
+      Distance: ${p.d} million km<br>
+      Orbital speed: ${p.s} km/s<br>
+      Avg temp: ${p.t}
+    `;
+  }
+});
+
+/* ================= TIME CONTROL ================= */
+let timeScale = 1;
+document.getElementById("speedSlider").addEventListener("input", e => {
+  timeScale = e.target.value;
+});
+
+/* ================= ANIMATION ================= */
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+
+  planets.forEach(p => {
+    p.userData.angle += p.userData.s * baseSpeedScale * delta * timeScale * 60;
+    p.position.set(
+      Math.cos(p.userData.angle) * p.userData.distance,
+      0,
+      Math.sin(p.userData.angle) * p.userData.distance
+    );
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ================= RESIZE ================= */
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+
+</body>
+</html>
